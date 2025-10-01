@@ -19,10 +19,12 @@ type Config struct {
 	Large     float64 `yaml:"large"`
 }
 
-type OPEvent struct {
-	Date   time.Time
+type EventRecord struct {
+	Year   int
+	Month  int
+	Day    int
+	Name   string
 	Amount float64
-	Target string
 }
 
 type configCtxKey string
@@ -67,7 +69,7 @@ func Read(ctx context.Context) (context.Context, error) {
 	return ctx, err
 }
 
-func ReadOPEvents(ctx context.Context) ([]OPEvent, error) {
+func ReadOPEvents(ctx context.Context) ([]EventRecord, error) {
 	cfg, err := Get(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +80,7 @@ func ReadOPEvents(ctx context.Context) ([]OPEvent, error) {
 		return nil, err
 	}
 	fmt.Printf("Found %d csv files from %s\n", len(fnames), pattern)
-	events := []OPEvent{}
+	events := []EventRecord{}
 	eventsCount := 0
 	for _, fname := range fnames {
 		// fmt.Println("Reading " + fname)
@@ -106,10 +108,12 @@ func ReadOPEvents(ctx context.Context) ([]OPEvent, error) {
 			if err := errors.Join(errDate, errFloat); err != nil {
 				return nil, err
 			}
-			events = append(events, OPEvent{
-				Date:   d,
+			events = append(events, EventRecord{
+				Year:   d.Year(),
+				Month:  int(d.Month()),
+				Day:    d.Day(),
 				Amount: a,
-				Target: fields[5],
+				Name:   fields[5],
 			})
 		}
 	}

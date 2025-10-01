@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
+
+	"github.com/spf13/cobra"
 
 	"github.com/jylitalo/expenses/config"
-	"github.com/spf13/cobra"
+	"github.com/jylitalo/expenses/storage"
 )
 
 func Execute(ctx context.Context) error {
@@ -19,14 +20,34 @@ func Execute(ctx context.Context) error {
 
 			ctx := cmd.Context()
 			cfg, errCfg := config.Get(ctx)
-			events, errEvents := config.ReadOPEvents(ctx)
-			if err := errors.Join(errCfg, errEvents); err != nil {
+			db := &storage.Sqlite3{}
+			errDB := db.Open()
+			if err := errors.Join(errCfg, errDB); err != nil {
 				return err
 			}
+			rows, err := db.Query(ctx, []string{"Year", "Month", "Day", "Name", "Amount"})
+			if err != nil {
+				return err
+			}
+			defer func() { _ = rows.Close() }()
 			income = 0
 			total = 0
 			largeTotal = 0
-			for _, event := range events {
+			for rows.Next() {
+				var year, month, day int
+				var name string
+				var amount float64
+				err := rows.Scan(&year, &month, &day, &name, &amount)
+				if err != nil {
+					return err
+				}
+				event := config.EventRecord{
+					Year:   year,
+					Month:  month,
+					Day:    day,
+					Name:   name,
+					Amount: amount,
+				}
 				if event.Amount > 0 {
 					income += event.Amount
 					continue
@@ -34,14 +55,16 @@ func Execute(ctx context.Context) error {
 				// fmt.Printf("%.2f < %.2f\n", -event.Amount, cfg.Large)
 				if -event.Amount > cfg.Large {
 					largeTotal -= event.Amount
-					fmt.Printf("%s %s %.2f\n", event.Date.Format(time.RFC3339), event.Target, -event.Amount)
+					fmt.Printf("%d-%02d-%02d %s %.2f\n", event.Year, event.Month, event.Day, event.Name, -event.Amount)
 				} else {
 					total -= event.Amount
 				}
 			}
 			fmt.Printf("income: %.2f, total: %.2f, total(large): %.2f\n", income, total, largeTotal)
+			fmt.Printf("income: %.2f/m, total: %.2f/m, total(large): %.2f/m\n", income/12, total/12, largeTotal/12)
 			return nil
 		},
 	}
+	rootCmd.AddCommand(makeCmd())
 	return rootCmd.ExecuteContext(ctx)
 }
