@@ -29,6 +29,7 @@ type QueryConfig struct {
 	Month  int
 	Years  []int
 	Order  *OrderConfig
+	Amount string // condition like "< 0"
 }
 
 type QueryOption func(c *QueryConfig)
@@ -42,6 +43,12 @@ const dbName = "expenses.sql"
 
 // EventTable is where bank account events
 const EventTable = "Event"
+
+func WithAmount(condition string) QueryOption {
+	return func(c *QueryConfig) {
+		c.Amount = condition
+	}
+}
 
 func WithDayOfYear(day, month int) QueryOption {
 	return func(c *QueryConfig) {
@@ -94,7 +101,8 @@ func (sq *Sqlite3) Create() error {
 	ymd := "Year integer, Month integer, Day integer,"
 	_, err := sq.db.Exec(`create table ` + EventTable + ` ( ` + ymd + `
 		Name string,
-		Amount number
+		Amount number,
+		Labels string
 	)`)
 	return err
 }
@@ -107,7 +115,7 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	if err != nil {
 		return err
 	}
-	fields := []string{"Year", "Month", "Day", "Name", "Amount"}
+	fields := []string{"Year", "Month", "Day", "Name", "Amount", "Labels"}
 	q := strings.Repeat("?,", len(fields)-1) + "?"
 	// #nosec G202
 	stmt, err := tx.Prepare("insert into " + EventTable + "(" + strings.Join(fields, ",") + ") values (" + q + ")")
@@ -116,7 +124,7 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, r := range records {
-		if _, err = stmt.Exec(r.Year, r.Month, r.Day, r.Name, r.Amount); err != nil {
+		if _, err = stmt.Exec(r.Year, r.Month, r.Day, r.Name, r.Amount, r.Labels); err != nil {
 			return fmt.Errorf("InsertSummary statement execution caused: %w", err)
 		}
 	}
@@ -134,7 +142,7 @@ func sqlQuery(fields []string, opts ...QueryOption) (string, []interface{}) { //
 	where := []string{}
 	args := []string{}
 	if len(cfg.Tables) == 0 {
-		panic("no tables specified in sqlQuery")
+		cfg.Tables = []string{EventTable}
 	}
 	if cfg.Month > 0 && cfg.Day > 0 {
 		where = append(where, "(Month < ? or (Month=? and Day<=?))")
@@ -146,6 +154,9 @@ func sqlQuery(fields []string, opts ...QueryOption) (string, []interface{}) { //
 		for _, y := range cfg.Years {
 			args = append(args, strconv.Itoa(y))
 		}
+	}
+	if cfg.Amount != "" {
+		where = append(where, "Amount "+cfg.Amount)
 	}
 	condition := ""
 	if len(where) > 0 {
@@ -180,9 +191,6 @@ func sortingOrder(order *OrderConfig) string {
 func (sq *Sqlite3) Query(ctx context.Context, fields []string, opts ...QueryOption) (*sql.Rows, error) {
 	if sq.db == nil {
 		return nil, errors.New("database is nil")
-	}
-	if len(opts) == 0 {
-		opts = []QueryOption{WithTable(EventTable)}
 	}
 	query, values := sqlQuery(fields, opts...)
 	return sq.db.QueryContext(ctx, query, values...)

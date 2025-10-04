@@ -15,8 +15,11 @@ import (
 )
 
 type Config struct {
-	Directory string  `yaml:"directory"`
-	Large     float64 `yaml:"large"`
+	Directory string `yaml:"directory"`
+	Silent    struct {
+		Min float64 `yaml:"min"`
+		Max float64 `yaml:"max"`
+	} `yaml:"silent"`
 }
 
 type EventRecord struct {
@@ -25,6 +28,7 @@ type EventRecord struct {
 	Day    int
 	Name   string
 	Amount float64
+	Labels string
 }
 
 type configCtxKey string
@@ -108,12 +112,14 @@ func ReadOPEvents(ctx context.Context) ([]EventRecord, error) {
 			if err := errors.Join(errDate, errFloat); err != nil {
 				return nil, err
 			}
+			labels := []string{}
 			events = append(events, EventRecord{
 				Year:   d.Year(),
 				Month:  int(d.Month()),
 				Day:    d.Day(),
 				Amount: a,
 				Name:   fields[5],
+				Labels: strings.Join(labels, ","),
 			})
 		}
 	}
