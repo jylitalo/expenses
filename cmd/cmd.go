@@ -24,18 +24,15 @@ func Execute(ctx context.Context) error {
 		Short: "Track monthly burn-rate",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			errMakeDB := makeDB(ctx)
 			cfg, errCfg := config.Get(ctx)
 			db := &storage.Sqlite3{}
-			errDB := db.Open()
-			if err := errors.Join(errMakeDB, errCfg, errDB); err != nil {
+			if err := errors.Join(errCfg, makeDB(ctx), db.Open()); err != nil {
 				return err
 			}
 			defer db.Close()
-			errBoundaries := outsideBoundaries(ctx, *cfg, db)
 			incoming, errIn := monthlyStats(ctx, db, storage.WithAmount("> 0"))
 			outgoing, errOut := monthlyStats(ctx, db, storage.WithAmount("< 0"))
-			if err := errors.Join(errBoundaries, errIn, errOut); err != nil {
+			if err := errors.Join(outsideBoundaries(ctx, *cfg, db), errIn, errOut); err != nil {
 				return err
 			}
 			fmt.Println()
@@ -48,14 +45,14 @@ func Execute(ctx context.Context) error {
 			for _, month := range months {
 				fmt.Printf("%s in: %8.2f€ out: %8.2f€\n", month, incoming[month], -outgoing[month])
 				in = append(in, incoming[month])
-				out = append(out, outgoing[month])
+				out = append(out, -outgoing[month])
 			}
 			slices.Sort(in)
 			slices.Sort(out)
 			n := len(in)
 			fmt.Println()
-			fmt.Printf("median:\nin: %7.2f€/m out: %7.2f€/m\n", in[n/2], -out[n/2])
-			fmt.Printf("average:\nin: %7.2f€/m out: %7.2f€/m\n", sum(in)/float64(n), -sum(out)/float64(n))
+			fmt.Printf("median:\nin: %7.2f€/m out: %7.2f€/m\n", in[n/2], out[n/2])
+			fmt.Printf("average:\nin: %7.2f€/m out: %7.2f€/m\n", sum(in)/float64(n), sum(out)/float64(n))
 			return nil
 		},
 	}
