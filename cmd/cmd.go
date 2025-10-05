@@ -24,21 +24,21 @@ func Execute(ctx context.Context) error {
 		Short: "Track monthly burn-rate",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
+			errMakeDB := makeDB(ctx)
 			cfg, errCfg := config.Get(ctx)
 			db := &storage.Sqlite3{}
 			errDB := db.Open()
-			if err := errors.Join(errCfg, errDB); err != nil {
+			if err := errors.Join(errMakeDB, errCfg, errDB); err != nil {
 				return err
 			}
-			if err := outsideBoundaries(ctx, *cfg, db); err != nil {
+			defer db.Close()
+			errBoundaries := outsideBoundaries(ctx, *cfg, db)
+			incoming, errIn := monthlyStats(ctx, db, storage.WithAmount("> 0"))
+			outgoing, errOut := monthlyStats(ctx, db, storage.WithAmount("< 0"))
+			if err := errors.Join(errBoundaries, errIn, errOut); err != nil {
 				return err
 			}
 			fmt.Println()
-			incoming, errIn := monthlyStats(ctx, db, storage.WithAmount("> 0"))
-			outgoing, errOut := monthlyStats(ctx, db, storage.WithAmount("< 0"))
-			if err := errors.Join(errIn, errOut); err != nil {
-				return err
-			}
 			uniq := maps.Clone(incoming)
 			maps.Copy(uniq, outgoing)
 			months := slices.Collect(maps.Keys(uniq))
@@ -73,9 +73,10 @@ func sum(values []float64) float64 {
 }
 
 func monthlyStats(ctx context.Context, db database, opts ...storage.QueryOption) (map[string]float64, error) {
-	o := []storage.QueryOption{storage.WithOrder(storage.OrderConfig{
-		GroupBy: []string{"Year", "Month"},
-	})}
+	o := []storage.QueryOption{
+		storage.WithOrder(storage.OrderConfig{GroupBy: []string{"Year", "Month"}}),
+		storage.WithoutLabels([]string{"exclude"}),
+	}
 	rows, err := db.Query(
 		ctx, []string{"Year", "Month", "sum(Amount)"},
 		append(o, opts...)...)
@@ -97,28 +98,23 @@ func monthlyStats(ctx context.Context, db database, opts ...storage.QueryOption)
 }
 
 func outsideBoundaries(ctx context.Context, cfg config.Config, db database) error {
-	rows, err := db.Query(ctx, []string{"Year", "Month", "Day", "Name", "Amount"})
+	rows, err := db.Query(
+		ctx, []string{"Year", "Month", "Day", "Name", "Amount", "Explanation"},
+		storage.WithoutLabels([]string{"silent"}),
+	)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var year, month, day int
-		var name string
+		var name, explanation string
 		var amount float64
-		err := rows.Scan(&year, &month, &day, &name, &amount)
-		if err != nil {
+		if err := rows.Scan(&year, &month, &day, &name, &amount, &explanation); err != nil {
 			return err
 		}
-		event := config.EventRecord{
-			Year:   year,
-			Month:  month,
-			Day:    day,
-			Name:   name,
-			Amount: amount,
-		}
-		if event.Amount < cfg.Silent.Min || cfg.Silent.Max < event.Amount {
-			fmt.Printf("%d-%02d-%02d %s %.2f€\n", event.Year, event.Month, event.Day, event.Name, event.Amount)
+		if amount < cfg.Silent.Min || cfg.Silent.Max < amount {
+			fmt.Printf("%d-%02d-%02d %9.2f€ %s - %s\n", year, month, day, amount, name, explanation)
 		}
 	}
 	return nil

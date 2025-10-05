@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,18 +18,27 @@ import (
 type Config struct {
 	Directory string `yaml:"directory"`
 	Silent    struct {
-		Min float64 `yaml:"min"`
-		Max float64 `yaml:"max"`
+		Min         float64  `yaml:"min"`
+		Max         float64  `yaml:"max"`
+		Explanation []string `yaml:"explanation"`
+		Names       []string `yaml:"names"`
 	} `yaml:"silent"`
+	Excluded struct {
+		Accounts    []string `yaml:"accounts"`
+		Explanation []string `yaml:"explanation"`
+		Names       []string `yaml:"names"`
+	} `yaml:"exclude"`
 }
 
 type EventRecord struct {
-	Year   int
-	Month  int
-	Day    int
-	Name   string
-	Amount float64
-	Labels string
+	Year        int
+	Month       int
+	Day         int
+	Explanation string
+	Name        string
+	Account     string
+	Amount      float64
+	Labels      string
 }
 
 type configCtxKey string
@@ -112,14 +122,28 @@ func ReadOPEvents(ctx context.Context) ([]EventRecord, error) {
 			if err := errors.Join(errDate, errFloat); err != nil {
 				return nil, err
 			}
+			explanation := fields[4]
+			name := fields[5]
+			account := fields[6]
 			labels := []string{}
+			if slices.Contains(cfg.Silent.Explanation, explanation) ||
+				slices.Contains(cfg.Silent.Names, name) {
+				labels = append(labels, "silent")
+			}
+			if slices.Contains(cfg.Excluded.Accounts, account) ||
+				slices.Contains(cfg.Excluded.Explanation, explanation) ||
+				slices.Contains(cfg.Excluded.Names, name) {
+				labels = append(labels, "exclude")
+			}
 			events = append(events, EventRecord{
-				Year:   d.Year(),
-				Month:  int(d.Month()),
-				Day:    d.Day(),
-				Amount: a,
-				Name:   fields[5],
-				Labels: strings.Join(labels, ","),
+				Year:        d.Year(),
+				Month:       int(d.Month()),
+				Day:         d.Day(),
+				Explanation: explanation,
+				Amount:      a,
+				Name:        name,
+				Account:     account,
+				Labels:      strings.Join(labels, ","),
 			})
 		}
 	}

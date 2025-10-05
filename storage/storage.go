@@ -23,13 +23,14 @@ type OrderConfig struct {
 }
 
 type QueryConfig struct {
-	Tables []string
-	Name   string
-	Day    int
-	Month  int
-	Years  []int
-	Order  *OrderConfig
-	Amount string // condition like "< 0"
+	Tables        []string
+	Name          string
+	Day           int
+	Month         int
+	Years         []int
+	Order         *OrderConfig
+	Amount        string // condition like "< 0"
+	ExcludeLabels []string
 }
 
 type QueryOption func(c *QueryConfig)
@@ -78,6 +79,12 @@ func WithTable(table string) QueryOption {
 	}
 }
 
+func WithoutLabels(labels []string) QueryOption {
+	return func(c *QueryConfig) {
+		c.ExcludeLabels = append(c.ExcludeLabels, labels...)
+	}
+}
+
 func (sq *Sqlite3) Remove() error {
 	if _, err := os.Stat(dbName); err != nil && errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -100,7 +107,9 @@ func (sq *Sqlite3) Create() error {
 	}
 	ymd := "Year integer, Month integer, Day integer,"
 	_, err := sq.db.Exec(`create table ` + EventTable + ` ( ` + ymd + `
+		Explanation string,
 		Name string,
+		Account string,
 		Amount number,
 		Labels string
 	)`)
@@ -115,7 +124,7 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	if err != nil {
 		return err
 	}
-	fields := []string{"Year", "Month", "Day", "Name", "Amount", "Labels"}
+	fields := []string{"Year", "Month", "Day", "Explanation", "Name", "Account", "Amount", "Labels"}
 	q := strings.Repeat("?,", len(fields)-1) + "?"
 	// #nosec G202
 	stmt, err := tx.Prepare("insert into " + EventTable + "(" + strings.Join(fields, ",") + ") values (" + q + ")")
@@ -124,7 +133,8 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, r := range records {
-		if _, err = stmt.Exec(r.Year, r.Month, r.Day, r.Name, r.Amount, r.Labels); err != nil {
+		_, err := stmt.Exec(r.Year, r.Month, r.Day, r.Explanation, r.Name, r.Account, r.Amount, r.Labels)
+		if err != nil {
 			return fmt.Errorf("InsertSummary statement execution caused: %w", err)
 		}
 	}
@@ -157,6 +167,11 @@ func sqlQuery(fields []string, opts ...QueryOption) (string, []interface{}) { //
 	}
 	if cfg.Amount != "" {
 		where = append(where, "Amount "+cfg.Amount)
+	}
+	if cfg.ExcludeLabels != nil {
+		for _, label := range cfg.ExcludeLabels {
+			where = append(where, fmt.Sprintf("Labels NOT LIKE '%%%s%%'", label))
+		}
 	}
 	condition := ""
 	if len(where) > 0 {
@@ -193,6 +208,7 @@ func (sq *Sqlite3) Query(ctx context.Context, fields []string, opts ...QueryOpti
 		return nil, errors.New("database is nil")
 	}
 	query, values := sqlQuery(fields, opts...)
+	// fmt.Println(query)
 	return sq.db.QueryContext(ctx, query, values...)
 }
 

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log/slog"
 
@@ -13,37 +12,25 @@ import (
 	"github.com/jylitalo/expenses/storage"
 )
 
-type Storage interface {
-	Query(ctx context.Context, fields []string, opts ...storage.QueryOption) (*sql.Rows, error)
-	Close() error
-}
-
 // fetchCmd fetches activity data from Strava
 func makeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "make",
 		Short: "Transform fetched CSV files into Sqlite database",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			db, err := makeDB(cmd.Context())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = db.Close() }()
-			return err
+			return makeDB(cmd.Context())
 		},
 	}
 	return cmd
 }
 
-func makeDB(ctx context.Context) (Storage, error) {
+func makeDB(ctx context.Context) error {
 	db := &storage.Sqlite3{}
 	slog.Info("Making database")
 	events, err := config.ReadOPEvents(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return db, errors.Join(
+	return errors.Join(
+		err,
 		db.Remove(), db.Open(), db.Create(),
-		db.Insert(ctx, events),
+		db.Insert(ctx, events), db.Close(),
 	)
 }
