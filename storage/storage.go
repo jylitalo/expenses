@@ -138,9 +138,6 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 			return fmt.Errorf("InsertSummary statement execution caused: %w", err)
 		}
 	}
-	if err != nil {
-		return err
-	}
 	return tx.Commit()
 }
 
