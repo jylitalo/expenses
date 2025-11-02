@@ -30,6 +30,7 @@ type QueryConfig struct {
 	Years         []int
 	Order         *OrderConfig
 	Amount        string // condition like "< 0"
+	Bank          string
 	ExcludeLabels []string
 }
 
@@ -111,7 +112,8 @@ func (sq *Sqlite3) Create() error {
 		Name string,
 		Account string,
 		Amount number,
-		Labels string
+		Labels string,
+		Bank string
 	)`)
 	return err
 }
@@ -124,7 +126,7 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	if err != nil {
 		return err
 	}
-	fields := []string{"Year", "Month", "Day", "Explanation", "Name", "Account", "Amount", "Labels"}
+	fields := []string{"Year", "Month", "Day", "Explanation", "Name", "Account", "Amount", "Labels", "Bank"}
 	q := strings.Repeat("?,", len(fields)-1) + "?"
 	// #nosec G202
 	stmt, err := tx.Prepare("insert into " + EventTable + "(" + strings.Join(fields, ",") + ") values (" + q + ")")
@@ -133,7 +135,7 @@ func (sq *Sqlite3) Insert(ctx context.Context, records []config.EventRecord) err
 	}
 	defer func() { _ = stmt.Close() }()
 	for _, r := range records {
-		_, err := stmt.Exec(r.Year, r.Month, r.Day, r.Explanation, r.Name, r.Account, r.Amount, r.Labels)
+		_, err := stmt.Exec(r.Year, r.Month, r.Day, r.Explanation, r.Name, r.Account, r.Amount, r.Labels, r.Bank)
 		if err != nil {
 			return fmt.Errorf("InsertSummary statement execution caused: %w", err)
 		}

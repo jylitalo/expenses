@@ -27,10 +27,11 @@ func makeCmd() *cobra.Command {
 func makeDB(ctx context.Context) error {
 	db := &storage.Sqlite3{}
 	slog.Info("Making database")
-	events, err := config.ReadOPEvents(ctx)
+	opEvents, errOP := config.ReadOPEvents(ctx)
+	sEvents, errS := config.ReadSPankkiEvents(ctx)
 	return errors.Join(
-		err,
+		errOP, errS,
 		db.Remove(), db.Open(), db.Create(),
-		db.Insert(ctx, events), db.Close(),
+		db.Insert(ctx, append(opEvents, sEvents...)), db.Close(),
 	)
 }
